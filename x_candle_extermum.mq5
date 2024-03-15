@@ -5,7 +5,7 @@
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2024, MetaQuotes Ltd."
 #property link      "https://github.com/Far-1d"
-#property version   "1.00"
+#property version   "1.10"
 
 //--- import library
 #include <trade/trade.mqh>
@@ -15,6 +15,7 @@ CTrade trade;
 //---inputs
 input group "Strategy Config";
 input int X                = 15;                   // number of candles to lookback (x)
+input int rest             = 50;                   // minimum candles to rest between positions
 
 input group "Position Config";
 input int Magic            = 4444;
@@ -51,6 +52,7 @@ input double rf_distance   = 5;                     // Price distance from entry
 
 //--- global variables
 double lot_size;                       // calculated initial lot size based on inputs
+datetime last_trade;                   // last trade time -> checking rest time between trades
 
 //+------------------------------------------------------------------+
 //| Expert initialization function                                   |
@@ -80,9 +82,11 @@ void OnTick(){
    
    if (totalbars != bars)
    {
-      //--- check bars for setup
-      check_bars();
-      
+      if (last_trade + rest*PeriodSeconds(PERIOD_CURRENT) < TimeCurrent())
+      {
+         //--- check bars for setup
+         check_bars();
+      }
       totalbars = bars;
    }
    
@@ -132,8 +136,16 @@ void check_bars(){
    //--- get last close price
    double last_close = iClose(_Symbol, PERIOD_CURRENT, 1);
    
-   if (last_close > highest_high)   open_position("BUY"); 
-   if (last_close < lowest_low)     open_position("SELL");
+   if (last_close > highest_high)
+   {
+      open_position("BUY");
+      last_trade = TimeCurrent();
+   }
+   if (last_close < lowest_low)
+   {
+      open_position("SELL");
+      last_trade = TimeCurrent();
+   }      
 }
 
 
