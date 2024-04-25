@@ -5,29 +5,22 @@
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2024, MetaQuotes Ltd."
 #property link      "https://github.com/Far-1d"
-#property version   "1.10"
+#property version   "1.30"
 
 //--- import library
 #include <trade/trade.mqh>
 CTrade trade;
 
-
-//---inputs
-input group "Strategy Config";
-input int X                = 15;                   // number of candles to lookback (x)
-input int rest             = 50;                   // minimum candles to rest between positions
-
-input group "Position Config";
-input int Magic            = 4444;
-enum lot_method {
+//--- enums
+enum lot_methods {
    for_x_dollar_balance,
    constant
 };
-input lot_method lot_type  = constant;              // how to calculate lot size? 
-input int dollar_balance   = 100;                   // base account dollar for balance and equity calculation
-input double lot_value     = 0.1;                   // lot size
-input int sl_distance      = 10;                    // sl distance in pip
-//input int max_lot          = 20;                    // maximum lot size of each trade
+
+enum box_heights {
+   high_low,            // Shadow (High to Low)
+   open_close           // Body (Open to Close)
+};
 enum tp_method {
    TP1,
    TP2,
@@ -37,28 +30,65 @@ enum tp_method {
    TP2_Trail,
    TP1_TP2_Trail
 };
-input tp_method tp_type = TP1_TP2_Trail;            // which tp to be active?(below inputs will be ignored based on active tp4)
 
+//---inputs
+input group "Strategy Config";
+input int breakout_candles = 1;                    // Number of Candles for Breaking the Box
+input box_heights bcm      = high_low;             // Breakout Candle Calculation Method
+input int box_percent      = 100;                  // Percent of Box Height to be Breaked by Candle
+input int entry_distance   = 5;                    // Entry Distance(not active)
+
+input group "Box Config";
+input int X                      = 15;             // Box Candles (x)
+input box_heights height_method  = high_low;       // how to calculate box height ?
+input int max_box_height         = 100;            // Max Box Height
+input int min_box_height         = 20;             // Min Box Height
+
+input group "Filter Config";
+input int rest             = 50;                   // Minimum Candles to Rest Between Positions
+input int max_spread       = 20;                   // Max Spread in Point
+input string trade_time_s  = "00:00";              // Trade Start Time
+input string trade_time_e  = "20:00";              // Trade End Time
+
+input group "Position Config";
+input int Magic            = 8888;
+input lot_methods lot_type = constant;              // how to calculate lot size? 
+input int dollar_balance   = 100;                   // base account dollar for balance and equity calculation
+input double lot_value     = 0.1;                   // lot size
+input int sl_distance      = 10;                    // sl distance in pip
+input tp_method tp_type = TP1_TP2_Trail;            // which tp to be active?
 input int tp1_distance     = 20;                    // tp 1 distance in pip
-input int tp2_distance     = 30;                    // tp 2 and trail distance in pip
+input int tp2_distance     = 30;                    // tp 2 distance in pip
 input int tp1_percent      = 50;                    // % percent of position to close at tp 1 
 input int tp2_percent      = 30;                    // % percent of position to close at tp 2 
+
+input group "Trail Config";
 input int trail_percent    = 20;                    // % percent of position to close at trail 
-input int trail_pip        = 30;                    // trail distance in pips when tp 2 reached
+input int trail_start_dist = 10;                    // Trail Start distance in pip 
+input int trail_pip        = 30;                    // Trail distance in pips when trail start reached
 
 input group "Risk free Config";
 input bool use_rf          = false;                 // Enable Risk Free ?
-input double rf_distance   = 5;                     // Price distance from entry (pip)
+input double rf_distance   = 5;                     // Price Distance from Entry (pip)
+
 
 //--- global variables
 double lot_size;                       // calculated initial lot size based on inputs
 datetime last_trade;                   // last trade time -> checking rest time between trades
+double calculated_box_size;            // last calculated box Size
+double calculated_box_high;            // last calculated box high
+double calculated_box_low;             // last calculated box low
+
 
 //+------------------------------------------------------------------+
 //| Expert initialization function                                   |
 //+------------------------------------------------------------------+
 int OnInit(){
-
+   if (TimeCurrent() > StringToTime("2025-04-01")){
+      Print("License finished. Contact Support for Help");
+      return (INIT_FAILED);
+   }
+   
    trade.SetExpertMagicNumber(Magic);
    return(INIT_SUCCEEDED);
 }
@@ -82,14 +112,17 @@ void OnTick(){
    
    if (totalbars != bars)
    {
-      if (last_trade + rest*PeriodSeconds(PERIOD_CURRENT) < TimeCurrent())
-      {
-         //--- check bars for setup
-         check_bars();
-      }
+      check_box();
       totalbars = bars;
    }
    
+   if (check_time())
+   {
+      if (check_spread())
+      {
+            check_bars();
+      }
+   }
       
    //--- trail and risk free part 
    if (PositionsTotal()>0){
@@ -99,7 +132,7 @@ void OnTick(){
             //--- checking for risk free opportunity
             riskfree(tikt);
             
-            if (PositionGetInteger(POSITION_MAGIC) == Magic && PositionGetString(POSITION_COMMENT) == "trail"){
+            if (PositionGetInteger(POSITION_MAGIC) == Magic){
                string type;
                if (PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY) type = "BUY";
                else if (PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_SELL) type = "SELL";
@@ -110,42 +143,152 @@ void OnTick(){
    }
 }
 
+
+//+------------------------------------------------------------------+
+//| check time of market                                             |
+//+------------------------------------------------------------------+
+bool check_time(){
+   if (TimeCurrent() >= StringToTime(trade_time_s) && TimeCurrent() <= StringToTime(trade_time_e))
+   {
+      
+      if (MathAbs(iBarShift(_Symbol, PERIOD_CURRENT, last_trade)-iBarShift(_Symbol, PERIOD_CURRENT, TimeCurrent())) > rest || 
+         iBarShift(_Symbol, PERIOD_CURRENT, last_trade) == -1)
+      {
+         return true;
+      }
+   }
+   return false;
+}
+
+
+//+------------------------------------------------------------------+
+//| check spread of market                                           |
+//+------------------------------------------------------------------+
+bool check_spread(){
+   int spread = ( int )SymbolInfoInteger(_Symbol, SYMBOL_SPREAD);
+   if (spread <= max_spread)
+      return true;
+   return false;
+}
+
+//+------------------------------------------------------------------+
+//| check box height and candles                                     |
+//+------------------------------------------------------------------+
+bool check_box(){
+   // find box size of last X candles
+   double 
+      highest_point=0, 
+      lowest_point=1000000000;
+   
+   if (height_method == high_low)
+   {
+      for (int i=0; i<=X; i++){
+         double 
+            high =iHigh(_Symbol, PERIOD_CURRENT, i+breakout_candles),
+            low = iLow(_Symbol, PERIOD_CURRENT, i+breakout_candles);
+         
+         if (high > highest_point)
+            highest_point = high;
+         if (low < lowest_point)
+            lowest_point = low;
+      }
+   }
+   else 
+   {
+      for (int i=0; i<=X; i++){
+         double 
+            close = iClose(_Symbol, PERIOD_CURRENT, i+breakout_candles),
+            open  = iOpen(_Symbol, PERIOD_CURRENT, i+breakout_candles),
+            high  = close > open ? close : open,
+            low   = close > open ? open : close;
+         
+         if (high > highest_point)
+            highest_point = high;
+         if (low < lowest_point)
+            lowest_point = low;
+      }
+   }
+   
+   double box_size = highest_point - lowest_point;
+   calculated_box_high = highest_point;
+   calculated_box_low = lowest_point;
+   
+   // check if box size in user defined range
+   if (box_size >= min_box_height*10*_Point && box_size <= max_box_height*10*_Point)
+   {
+      
+      calculated_box_size = box_size;
+      Print("box size is ok ", calculated_box_size);
+      return true;
+   }
+   
+   calculated_box_size = -1;
+   return false;
+}
+
 //+------------------------------------------------------------------+
 //| check last X candles for a setup                                 |
 //+------------------------------------------------------------------+
 void check_bars(){
-   
+   // find bar size in cum-sum approach
    double
-      highest_high   = 0,
-      lowest_low     = 10000000000000000;
+      highest_point  = 0,
+      lowest_point   = 1000000000;
    
-   for (int i=2;  i<=X+1;  i++)
+   if (bcm == high_low)
    {
-      double 
-         high = iHigh(_Symbol, PERIOD_CURRENT, i),
-         low  = iLow(_Symbol, PERIOD_CURRENT, i);
-   
-      if (high > highest_high) highest_high = high;
-      if (low < lowest_low) lowest_low = low;
+      for (int i=0;  i<breakout_candles;  i++)
+      {
+         double 
+            high = iHigh(_Symbol, PERIOD_CURRENT, i),
+            low  = iLow(_Symbol, PERIOD_CURRENT, i);
+      
+         if (high > highest_point) 
+            highest_point = high;
+         if (low < lowest_point) 
+            lowest_point = low;
+      }
+   }
+   else
+   {
+      for (int i=0;  i<breakout_candles;  i++)
+      {
+         double 
+            close = iClose(_Symbol, PERIOD_CURRENT, i),
+            open = iOpen(_Symbol, PERIOD_CURRENT, i),
+            high = close > open ? close : open,
+            low  = close > open ? open : close;
+      
+         if (high > highest_point) 
+            highest_point = high;
+         if (low < lowest_point) 
+            lowest_point = low;
+      }
    }
    
-   //--- calculate lot size
-   if (lot_type == 1) lot_size = lot_value;
-   else lot_size = lot_value*(AccountInfoDouble(ACCOUNT_BALANCE)/dollar_balance);
+   double bar_size = highest_point-lowest_point;
    
-   //--- get last close price
-   double last_close = iClose(_Symbol, PERIOD_CURRENT, 1);
-   
-   if (last_close > highest_high)
+   // check bar size vs box size
+   if (bar_size >= calculated_box_size*box_percent/100 && calculated_box_size > 0 && bar_size != 0)
    {
-      open_position("BUY");
-      last_trade = TimeCurrent();
+      //--- calculate lot size
+      if (lot_type == 1) lot_size = lot_value;
+      else lot_size = lot_value*(AccountInfoDouble(ACCOUNT_BALANCE)/dollar_balance);
+      
+      //--- open positions based on breakout side
+      if (calculated_box_high < highest_point)
+      {
+         open_position("BUY");
+         last_trade = TimeCurrent();
+      }
+      else if (calculated_box_low > lowest_point)
+      {
+         open_position("SELL");
+         last_trade = TimeCurrent();
+      }
+      
    }
-   if (last_close < lowest_low)
-   {
-      open_position("SELL");
-      last_trade = TimeCurrent();
-   }      
+         
 }
 
 
@@ -156,7 +299,7 @@ void check_bars(){
 //| Open positions with requote resistant method                     |
 //+------------------------------------------------------------------+
 void open_position(string type){
-
+   
    if (type == "BUY"){
       double 
          ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK),
@@ -167,7 +310,7 @@ void open_position(string type){
          lt2 = NormalizeDouble(lot_size*tp2_percent/100, 2),
          lt3 = NormalizeDouble(lot_size*trail_percent/100, 2);
          Print("ask = ", ask, "   sl = ", sl, "   tp1 = ", tp1, "   tp2 = ", tp2, "    lt1 = ", lt1);
-      
+
       if (tp_type == 0){
          int counting = 0;
          while(true){
@@ -292,6 +435,7 @@ void open_position(string type){
          lt2 = NormalizeDouble(lot_size*tp2_percent/100, 2),
          lt3 = NormalizeDouble(lot_size*trail_percent/100, 2);
          Print("bid = ", bid, "   sl = ", sl, "   tp1 = ", tp1, "   tp2 = ", tp2, "    lt1 = ", lt1);
+
       if (tp_type == 0){
          int counting = 0;
          while(true){
@@ -413,7 +557,6 @@ void open_position(string type){
    }
 }
 
-
 //+------------------------------------------------------------------+
 //| Place orders from values returned from open_position()           |
 //+------------------------------------------------------------------+
@@ -431,14 +574,12 @@ bool place_order(string type, double lots, double sl, double tp, string comment=
    if (type == "BUY"){
       if (trade.Buy(lots, _Symbol, 0, sl, tp, comment))
       {
-         int tot = PositionsTotal();
          return true;
       }
       
    } else {
       if (trade.Sell(lots, _Symbol, 0, sl, tp, comment))
       {
-         int tot = PositionsTotal();
          return true;
       }
       
@@ -459,14 +600,14 @@ void trailing(ulong tikt , string type){
    double bid           = SymbolInfoDouble(_Symbol, SYMBOL_BID);
    
    if(type == "BUY"){
-      if (ask > PositionGetDouble(POSITION_PRICE_OPEN)+(tp2_distance*10*_Point)){
+      if (ask > PositionGetDouble(POSITION_PRICE_OPEN)+(trail_start_dist*10*_Point)){
          if (ask-curr_sl > trail_pip*10*_Point){
             trade.PositionModify(tikt, ask - trail_pip*10*_Point, curr_tp);
             Print("changed buy trailed to ", ask - trail_pip*10*_Point);
          }
       }
    } else {
-      if (bid < PositionGetDouble(POSITION_PRICE_OPEN)-(tp2_distance*10*_Point)){
+      if (bid < PositionGetDouble(POSITION_PRICE_OPEN)-(trail_start_dist*10*_Point)){
          if (curr_sl-bid > trail_pip*10*_Point){
             trade.PositionModify(tikt, bid + trail_pip*10*_Point, curr_tp);
             Print("changed sell trailed to ", bid + trail_pip*10*_Point);
@@ -481,7 +622,6 @@ void trailing(ulong tikt , string type){
 //+----------------------------------------------------------------------+
 void riskfree(ulong tikt){
    if (use_rf) {
-      //PositionSelectByTicket(tikt)
       double
          entry = PositionGetDouble(POSITION_PRICE_OPEN),
          tp = PositionGetDouble(POSITION_TP),
