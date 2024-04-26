@@ -275,13 +275,15 @@ void check_bars(){
       if (lot_type == 1) lot_size = lot_value;
       else lot_size = lot_value*(AccountInfoDouble(ACCOUNT_BALANCE)/dollar_balance);
       
+      double candle_close = iClose(_Symbol, PERIOD_CURRENT, 0);
+      
       //--- open positions based on breakout side
-      if (calculated_box_high < highest_point)
+      if (calculated_box_high < highest_point && calculated_box_high < candle_close)
       {
          open_position("BUY");
          last_trade = TimeCurrent();
       }
-      else if (calculated_box_low > lowest_point)
+      else if (calculated_box_low > lowest_point && calculated_box_low > candle_close)
       {
          open_position("SELL");
          last_trade = TimeCurrent();
