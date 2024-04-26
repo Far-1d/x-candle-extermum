@@ -134,8 +134,22 @@ void OnTick(){
             
             if (PositionGetInteger(POSITION_MAGIC) == Magic){
                string type;
-               if (PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY) type = "BUY";
-               else if (PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_SELL) type = "SELL";
+               if (PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY) 
+               {
+                  type = "BUY";
+                  //double sl = PositionGetDouble(POSITION_SL);
+                  //if (SymbolInfoDouble(_Symbol, SYMBOL_BID) < sl){
+                  //   trade.PositionClose(tikt);
+                  //}
+               }
+               else if (PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_SELL) 
+               {
+                  type = "SELL";
+                  //double sl = PositionGetDouble(POSITION_SL);
+                  //if (SymbolInfoDouble(_Symbol, SYMBOL_ASK) > sl){
+                  //   trade.PositionClose(tikt);
+                  //}
+               }
                trailing(tikt, type);
             }
          }
@@ -282,11 +296,13 @@ void check_bars(){
       {
          open_position("BUY");
          last_trade = TimeCurrent();
+         draw_box();
       }
       else if (calculated_box_low > lowest_point && calculated_box_low > candle_close)
       {
          open_position("SELL");
          last_trade = TimeCurrent();
+         draw_box();
       }
       
    }
@@ -295,6 +311,33 @@ void check_bars(){
 
 
 //+------------------------------------------------------------------+
+//| Draw Box on Chart                                                |
+//+------------------------------------------------------------------+
+void draw_box(){
+   datetime t1 = iTime(_Symbol, PERIOD_CURRENT, X+breakout_candles);
+   datetime t2 = iTime(_Symbol, PERIOD_CURRENT, breakout_candles);
+   double p1 = calculated_box_high;
+   double p2 = calculated_box_low;
+   
+   string obj_name = "BOX_"+TimeToString(t2);
+   if (ObjectCreate(0, obj_name, OBJ_RECTANGLE, 0, t1, p1, t2, p2))
+   {
+      ObjectSetInteger(0, obj_name, OBJPROP_SELECTABLE, true);
+      ObjectSetInteger(0, obj_name, OBJPROP_STYLE, STYLE_SOLID);
+      ObjectSetInteger(0, obj_name, OBJPROP_FILL, false);
+      ObjectSetInteger(0,obj_name, OBJPROP_COLOR, clrGold);
+      
+      string size_obj = "Box Size -- "+ (string)NormalizeDouble(calculated_box_high-calculated_box_low,3);
+      if (ObjectCreate(0, size_obj, OBJ_TEXT, 0, t1+PeriodSeconds(PERIOD_CURRENT), (double)p1 ))
+      {
+         ObjectSetString(0, size_obj,OBJPROP_TEXT,"Price Change: "+(string)NormalizeDouble(calculated_box_high-calculated_box_low,3) ); 
+         ObjectSetInteger(0, size_obj, OBJPROP_COLOR, clrGold);
+      }
+      
+   }
+   
+}
+
 
 
 //+------------------------------------------------------------------+
