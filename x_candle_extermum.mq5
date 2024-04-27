@@ -5,7 +5,9 @@
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2024, MetaQuotes Ltd."
 #property link      "https://github.com/Far-1d"
-#property version   "1.30"
+#property version   "1.50"
+#property description "Date Modified: 2024-04-28"
+#property description "First BackTest"
 
 //--- import library
 #include <trade/trade.mqh>
@@ -249,14 +251,16 @@ void check_bars(){
       highest_point  = 0,
       lowest_point   = 1000000000;
    
-   if (bcm == high_low)
+   if (bcm == high_low && breakout_candles > 1)
    {
-      for (int i=0;  i<breakout_candles;  i++)
+      double open = iOpen(_Symbol, PERIOD_CURRENT, breakout_candles);
+      
+      for (int i=0;  i<breakout_candles-1;  i++)
       {
          double 
             high = iHigh(_Symbol, PERIOD_CURRENT, i),
             low  = iLow(_Symbol, PERIOD_CURRENT, i);
-      
+         
          if (high > highest_point) 
             highest_point = high;
          if (low < lowest_point) 
@@ -319,19 +323,21 @@ void draw_box(){
    double p1 = calculated_box_high;
    double p2 = calculated_box_low;
    
+   long chart_id = ChartID();
    string obj_name = "BOX_"+TimeToString(t2);
-   if (ObjectCreate(0, obj_name, OBJ_RECTANGLE, 0, t1, p1, t2, p2))
+   
+   if (ObjectCreate(chart_id, obj_name, OBJ_RECTANGLE, 0, t1, p1, t2, p2))
    {
-      ObjectSetInteger(0, obj_name, OBJPROP_SELECTABLE, true);
-      ObjectSetInteger(0, obj_name, OBJPROP_STYLE, STYLE_SOLID);
-      ObjectSetInteger(0, obj_name, OBJPROP_FILL, false);
-      ObjectSetInteger(0,obj_name, OBJPROP_COLOR, clrGold);
+      ObjectSetInteger(chart_id, obj_name, OBJPROP_SELECTABLE, true);
+      ObjectSetInteger(chart_id, obj_name, OBJPROP_STYLE, STYLE_SOLID);
+      ObjectSetInteger(chart_id, obj_name, OBJPROP_FILL, false);
+      ObjectSetInteger(chart_id,obj_name, OBJPROP_COLOR, clrGold);
       
       string size_obj = "Box Size -- "+ (string)NormalizeDouble(calculated_box_high-calculated_box_low,3);
-      if (ObjectCreate(0, size_obj, OBJ_TEXT, 0, t1+PeriodSeconds(PERIOD_CURRENT), (double)p1 ))
+      if (ObjectCreate(chart_id, size_obj, OBJ_TEXT, 0, t1+PeriodSeconds(PERIOD_CURRENT), (double)p1 ))
       {
-         ObjectSetString(0, size_obj,OBJPROP_TEXT,"Price Change: "+(string)NormalizeDouble(calculated_box_high-calculated_box_low,3) ); 
-         ObjectSetInteger(0, size_obj, OBJPROP_COLOR, clrGold);
+         ObjectSetString(chart_id, size_obj,OBJPROP_TEXT,"Pip Change: "+(string)NormalizeDouble((calculated_box_high-calculated_box_low)/(_Point*10),3) ); 
+         ObjectSetInteger(chart_id, size_obj, OBJPROP_COLOR, clrGold);
       }
       
    }
