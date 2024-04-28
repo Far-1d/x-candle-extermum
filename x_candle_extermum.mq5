@@ -5,7 +5,7 @@
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2024, MetaQuotes Ltd."
 #property link      "https://github.com/Far-1d"
-#property version   "1.50"
+#property version   "1.60"
 #property description "Date Modified: 2024-04-28"
 #property description "First BackTest"
 
@@ -36,9 +36,9 @@ enum tp_method {
 //---inputs
 input group "Strategy Config";
 input int breakout_candles = 1;                    // Number of Candles for Breaking the Box
-input box_heights bcm      = high_low;             // Breakout Candle Calculation Method
+//input box_heights bcm      = high_low;             // Breakout Candle Calculation Method
 input int box_percent      = 100;                  // Percent of Box Height to be Breaked by Candle
-input int entry_distance   = 5;                    // Entry Distance(not active)
+//input int entry_distance   = 5;                    // Entry Distance(not active)
 
 input group "Box Config";
 input int X                      = 15;             // Box Candles (x)
@@ -88,6 +88,11 @@ double calculated_box_low;             // last calculated box low
 int OnInit(){
    if (TimeCurrent() > StringToTime("2025-04-01")){
       Print("License finished. Contact Support for Help");
+      return (INIT_FAILED);
+   }
+   if (breakout_candles < 1)
+   {
+      Print("BreakOut Candles must be Greater than 1");
       return (INIT_FAILED);
    }
    
@@ -251,7 +256,7 @@ void check_bars(){
       highest_point  = 0,
       lowest_point   = 1000000000;
    
-   if (bcm == high_low && breakout_candles > 1)
+   /*if (bcm == high_low && breakout_candles > 1)
    {
       double open = iOpen(_Symbol, PERIOD_CURRENT, breakout_candles);
       
@@ -284,44 +289,56 @@ void check_bars(){
       }
    }
    
-   double bar_size = highest_point-lowest_point;
+   double bar_size = highest_point-lowest_point;*/
+   
+   //--- update 1.60 
+   double open = iOpen(_Symbol, PERIOD_CURRENT, breakout_candles-1);
+   double close = iClose(_Symbol, PERIOD_CURRENT, 0);
+   double bar_size = MathAbs(open-close);
    
    // check bar size vs box size
-   if (bar_size >= calculated_box_size*box_percent/100 && calculated_box_size > 0 && bar_size != 0)
+   if (calculated_box_size > 0 && bar_size != 0)
    {
-      //--- calculate lot size
-      if (lot_type == 1) lot_size = lot_value;
-      else lot_size = lot_value*(AccountInfoDouble(ACCOUNT_BALANCE)/dollar_balance);
       
-      double candle_close = iClose(_Symbol, PERIOD_CURRENT, 0);
-      
-      //--- open positions based on breakout side
-      if (calculated_box_high < highest_point && calculated_box_high < candle_close)
+      if (bar_size >= calculated_box_size*box_percent/100)
       {
-         open_position("BUY");
-         last_trade = TimeCurrent();
-         draw_box();
-      }
-      else if (calculated_box_low > lowest_point && calculated_box_low > candle_close)
-      {
-         open_position("SELL");
-         last_trade = TimeCurrent();
-         draw_box();
-      }
-      
-   }
+         //--- calculate lot size
+         if (lot_type == 1) lot_size = lot_value;
+         else lot_size = lot_value*(AccountInfoDouble(ACCOUNT_BALANCE)/dollar_balance);
          
+         Print("bar size = ", bar_size);
+         
+         //--- open positions based on breakout side
+         if (calculated_box_high < close && open < close && open > calculated_box_low)
+         {
+            open_position("BUY");
+            last_trade = TimeCurrent();
+            datetime t1 = iTime(_Symbol, PERIOD_CURRENT, X+breakout_candles);
+            datetime t2 = iTime(_Symbol, PERIOD_CURRENT, breakout_candles);
+            double p1 = calculated_box_high;
+            double p2 = calculated_box_low;
+            draw_box(t1, p1, t2, p2);
+         }
+         else if (calculated_box_low > close && open > close && open < calculated_box_high)
+         {
+            open_position("SELL");
+            last_trade = TimeCurrent();
+            datetime t1 = iTime(_Symbol, PERIOD_CURRENT, X+breakout_candles);
+            datetime t2 = iTime(_Symbol, PERIOD_CURRENT, breakout_candles);
+            double p1 = calculated_box_high;
+            double p2 = calculated_box_low;
+            draw_box(t1, p1, t2, p2);
+         }
+         
+      }
+   }      
 }
 
 
 //+------------------------------------------------------------------+
 //| Draw Box on Chart                                                |
 //+------------------------------------------------------------------+
-void draw_box(){
-   datetime t1 = iTime(_Symbol, PERIOD_CURRENT, X+breakout_candles);
-   datetime t2 = iTime(_Symbol, PERIOD_CURRENT, breakout_candles);
-   double p1 = calculated_box_high;
-   double p2 = calculated_box_low;
+void draw_box(datetime t1, double p1, datetime t2, double p2){
    
    long chart_id = ChartID();
    string obj_name = "BOX_"+TimeToString(t2);
