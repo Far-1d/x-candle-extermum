@@ -355,8 +355,8 @@ void check_bars(){
       else if (consecutive_loses == 0) multiplier += consecutive_wins*(double)lot_multiplier_win/100;
       else if (consecutive_wins == 0) multiplier -= consecutive_loses*(double)lot_multiplier_lose/100;
       
-      if (lot_type == 1) lot_size = lot_value;
-      else lot_size = lot_value*(AccountInfoDouble(ACCOUNT_BALANCE)/dollar_balance);
+      if (lot_type == 1) lot_size = lot_value*multiplier;
+      else lot_size = lot_value*(AccountInfoDouble(ACCOUNT_BALANCE)/dollar_balance)*multiplier;
       
       double candle_close = iClose(_Symbol, PERIOD_CURRENT, 0);
       
